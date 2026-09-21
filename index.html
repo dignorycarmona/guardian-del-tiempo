@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardián del Tiempo</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f5f6f8; --card: #fff; --ink: #1f2933; --muted: #52606d; --line: #d9dee5; --accent: #2b4c7e; --on-accent: #fff;
+    --field: #fff; --chip: #eef0f3;
+    --ok-bg: #e3f4e8; --ok-ink: #17602e;
+    --low-bg: #fdf3d0; --low-ink: #7a5a00;
+    --high-bg: #fde4e2; --high-ink: #9b1c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #14181d; --card: #1c2229; --ink: #e6ebf0; --muted: #9aa7b4; --line: #303a45; --accent: #7fa7e0; --on-accent: #10161d;
+      --field: #10151a; --chip: #27303a;
+      --ok-bg: #17351f; --ok-ink: #8fd6a1;
+      --low-bg: #3a3110; --low-ink: #efd27a;
+      --high-bg: #3d1c1b; --high-ink: #f2a29c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14181d; --card: #1c2229; --ink: #e6ebf0; --muted: #9aa7b4; --line: #303a45; --accent: #7fa7e0; --on-accent: #10161d;
+    --field: #10151a; --chip: #27303a;
+    --ok-bg: #17351f; --ok-ink: #8fd6a1;
+    --low-bg: #3a3110; --low-ink: #efd27a;
+    --high-bg: #3d1c1b; --high-ink: #f2a29c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 16px/1.4 system-ui, sans-serif; }
+  main { max-width: 1500px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 1400px; }
+  th { text-align: left; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 8px 8px; }
+  td { padding: 4px 8px; vertical-align: middle; }
+  input, select, button { font: inherit; min-height: 44px; border-radius: 8px; }
+  input, select { width: 100%; padding: 0 10px; border: 1px solid var(--line); background: var(--field); color: var(--ink); }
+  select.role { min-width: 190px; }
+  input.desc { min-width: 260px; }
+  input.t { width: 88px; text-align: center; font-variant-numeric: tabular-nums; }
+  input[aria-invalid="true"] { border-color: var(--high-ink); background: var(--high-bg); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  button { border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); padding: 0 16px; cursor: pointer; }
+  button:hover { filter: brightness(1.15); }
+  button.ghost { background: transparent; color: var(--muted); border-color: var(--line); padding: 0 12px; }
+  button.ghost:hover { color: var(--high-ink); border-color: var(--high-ink); filter: none; }
+  button.clock { min-width: 150px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.run-green td { background: var(--ok-bg); }
+  tr.run-yellow td { background: var(--low-bg); }
+  tr.run-red td { background: var(--high-bg); }
+  .hint, #msg { color: var(--muted); margin: 12px 0 0; }
+  .hint { display: none; }
+  .card:has(#rows:empty) .hint { display: block; }
+  #msg:empty { display: none; }
+  button.secondary { background: var(--card); color: var(--accent); }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .badge { display: inline-block; padding: 6px 10px; border-radius: 999px; font-size: .875rem; white-space: nowrap; background: var(--chip); color: var(--muted); }
+  .badge.ok { background: var(--ok-bg); color: var(--ok-ink); }
+  .badge.low { background: var(--low-bg); color: var(--low-ink); }
+  .badge.high { background: var(--high-bg); color: var(--high-ink); }
+  #report { white-space: pre-wrap; font-size: 1.05rem; line-height: 1.6; margin: 12px 0 0; }
+  #report:empty { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Guardián del Tiempo</h1>
+  <p class="sub">Usa el cronómetro de cada fila o escribe el tiempo real en MM:SS.</p>
+
+  <section class="card">
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Descripción</th><th>Socio</th><th>Rol</th><th>Mínimo</th><th>Máximo</th><th>Cronómetro</th><th>Real</th><th>Estado</th><th><span class="sr" hidden>Quitar</span></th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="hint">Carga la agenda en PDF o añade participantes a mano.</p>
+    <div class="actions">
+      <button type="button" id="add">+ Añadir participante</button>
+      <button type="button" id="load" class="secondary">Cargar agenda (PDF)</button>
+      <input type="file" id="pdf" accept="application/pdf" hidden>
+    </div>
+    <p id="msg" role="status"></p>
+  </section>
+
+  <section class="card">
+    <button type="button" id="gen">Generar Reporte Final</button>
+    <div id="report" aria-live="polite"></div>
+  </section>
+</main>
+
+<template id="row">
+  <tr>
+    <td><input class="desc" type="text" aria-label="Descripción" autocomplete="off"></td>
+    <td><input class="name" type="text" aria-label="Socio" autocomplete="off"></td>
+    <td>
+      <select class="role" aria-label="Rol">
+        <option>Discurso Preparado</option><option>Table Topic</option><option>Evaluación</option><option>Reporte</option><option>Toastmaster</option><option>Topicsmaster</option><option>Presidencia</option><option>Presentación de rol</option><option>Otro</option>
+      </select>
+    </td>
+    <td><input class="t min" type="text" inputmode="numeric" placeholder="MM:SS" maxlength="6" aria-label="Tiempo mínimo"></td>
+    <td><input class="t max" type="text" inputmode="numeric" placeholder="MM:SS" maxlength="6" aria-label="Tiempo máximo"></td>
+    <td><button type="button" class="clock" aria-label="Cronómetro">Iniciar</button></td>
+    <td><input class="t real" type="text" inputmode="numeric" placeholder="MM:SS" maxlength="6" aria-label="Tiempo real"></td>
+    <td><span class="badge" role="status">Pendiente</span></td>
+    <td><button type="button" class="ghost del" aria-label="Quitar participante">Quitar</button></td>
+  </tr>
+</template>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const rows = document.getElementById('rows');
+const report = document.getElementById('report');
+const STATES = {
+  ok:   { cls: 'ok',   label: '✅ En rango' },
+  low:  { cls: 'low',  label: '⬇️ Por debajo' },
+  high: { cls: 'high', label: '⬆️ Por encima' },
+};
+
+// "5:30" -> 330, invalid or empty -> null
+const toSec = s => {
+  const m = /^(\d{1,3}):([0-5]\d)$/.exec(s.trim());
+  return m ? +m[1] * 60 + +m[2] : null;
+};
+
+function refresh(tr) {
+  const [min, max, real] = ['min', 'max', 'real'].map(c => tr.querySelector('.' + c));
+  const r = toSec(real.value);
+  // ponytail: an empty min/max means "no bound" instead of an error
+  const lo = toSec(min.value) ?? 0, hi = toSec(max.value) ?? Infinity;
+  const key = r === null ? null : r < lo ? 'low' : r > hi ? 'high' : 'ok';
+  const badge = tr.querySelector('.badge');
+  badge.className = 'badge' + (key ? ' ' + STATES[key].cls : '');
+  badge.textContent = key ? STATES[key].label : 'Pendiente';
+  tr.dataset.state = key || '';
+}
+
+function addRow(d = {}, focus = true, before = null) {
+  rows.insertBefore(document.getElementById('row').content.cloneNode(true), before);
+  const tr = before ? before.previousElementSibling : rows.lastElementChild;
+  const v = { role: 'Table Topic', min: '1:00', max: '2:00', ...d };
+  tr.querySelector('.desc').value = v.desc || '';
+  tr.querySelector('.name').value = v.name || '';
+  for (const c of ['role', 'min', 'max']) tr.querySelector('.' + c).value = v[c];
+  if (focus) tr.querySelector('.name').focus();
+}
+
+rows.addEventListener('input', e => {
+  e.target.removeAttribute('aria-invalid');
+  refresh(e.target.closest('tr'));
+  save();
+});
+// flag a malformed time only once the user leaves the field, not while typing
+rows.addEventListener('focusout', e => {
+  const i = e.target;
+  if (i.classList.contains('t')) i.setAttribute('aria-invalid', i.value.trim() !== '' && toSec(i.value) === null);
+});
+rows.addEventListener('click', e => {
+  const tr = e.target.closest('tr');
+  if (e.target.closest('.del')) {
+    if (run && run.tr === tr) run = null;
+    tr.remove();
+  } else if (e.target.closest('.clock')) {
+    if (run && run.tr === tr) stop(); else start(tr);
+  }
+  save();
+});
+// new guests go inside the Table Topics block: right after the Topicsmaster row or the last Table Topic
+document.getElementById('add').onclick = () => {
+  const last = [...rows.children].findLast(tr => ['Table Topic', 'Topicsmaster'].includes(tr.querySelector('.role').value));
+  addRow({}, true, last ? last.nextElementSibling : null);
+  save();
+};
+
+// Stopwatch: one at a time, computed from the start timestamp so a throttled background tab cannot drift.
+let run = null;
+const fmt = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+const SIGNAL = { green: 'Verde', yellow: 'Amarillo', red: 'Rojo' };
+
+function start(tr) {
+  stop();
+  run = { tr, t0: Date.now() };
+  tick();
+}
+
+function stop() {
+  if (!run) return;
+  const { tr, t0 } = run;
+  run = null;
+  const real = tr.querySelector('.real');
+  real.value = fmt(Math.floor((Date.now() - t0) / 1000));
+  real.dispatchEvent(new Event('input', { bubbles: true }));
+  tr.className = '';
+  tr.querySelector('.clock').textContent = 'Iniciar';
+}
+
+function tick() {
+  if (!run) return;
+  const { tr, t0 } = run;
+  const s = Math.floor((Date.now() - t0) / 1000);
+  const min = toSec(tr.querySelector('.min').value), max = toSec(tr.querySelector('.max').value);
+  const mid = min !== null && max !== null ? (min + max) / 2 : null;
+  const sig = max !== null && s >= max ? 'red' : mid !== null && s >= mid ? 'yellow' : min !== null && s >= min ? 'green' : '';
+  tr.className = sig && 'run-' + sig;
+  tr.querySelector('.clock').textContent = 'Parar ' + fmt(s) + (sig ? ' · ' + SIGNAL[sig] : '');
+}
+setInterval(tick, 250);
+
+document.getElementById('gen').onclick = () => {
+  const groups = { ok: [], low: [], high: [] };
+  const names = [...rows.querySelectorAll('.name')].map(i => i.value.trim().toLowerCase());
+  [...rows.children].forEach((tr, i) => {
+    const key = tr.dataset.state;
+    if (!key) return;
+    const name = tr.querySelector('.name').value.trim() || tr.querySelector('.desc').value.trim() || 'Orador ' + (i + 1);
+    // same person twice (speech + evaluation): add the agenda description (or the role) so it can be read aloud unambiguously
+    const role = names[i] && names.indexOf(names[i]) !== names.lastIndexOf(names[i]) ? ', ' + (tr.querySelector('.desc').value.trim() || tr.querySelector('.role').value.toLowerCase()) : '';
+    groups[key].push(`${name}${role} (${tr.querySelector('.real').value.trim()})`);
+  });
+  const list = g => g.length ? g.join(', ') + '.' : 'Ninguno.';
+  report.textContent =
+`Señor Evaluador, compañeros. Como Guardián del Tiempo, aquí está el mapa final de nuestra sesión:
+- En la Zona Ideal (cumplieron su rango): ${list(groups.ok)}
+- Quienes guardaron tesoros para la próxima (por debajo del rango): ${list(groups.low)}
+- Quienes nos regalaron más oro del presupuestado (por encima del rango): ${list(groups.high)}
+Gracias a todos por cuidar el tiempo del club.`;
+};
+
+// Agenda PDF -> {title, rows}. Column positions come from the header row, so it survives layout shifts.
+const CLOCK = /^\d{1,2}:\d{2}:\d{2}$/;
+const hms = t => t.split(':').reduce((a, v) => a * 60 + +v, 0);
+
+async function readAgenda(pdfjsLib, data) {
+  const doc = await pdfjsLib.getDocument({ data }).promise;
+  const out = { title: [], rows: [] };
+  for (let n = 1; n <= doc.numPages; n++) {
+    const items = (await (await doc.getPage(n)).getTextContent()).items
+      .map(i => ({ t: i.str.trim(), x: i.transform[4], y: i.transform[5] })).filter(i => i.t);
+    const col = k => items.find(i => i.t.toUpperCase().startsWith(k))?.x;
+    const [xStart, xEnd, xSocio] = [col('INICIO'), col('FIN'), col('SOCIO')];
+    if ([xStart, xEnd, xSocio].includes(undefined)) continue;
+    out.title.push(...items.filter(i => /^(Sesi|Tema|Palabra)/.test(i.t)).map(i => i.t));
+    const anchors = items.filter(i => CLOCK.test(i.t) && i.x < (xStart + xEnd) / 2);
+    const owner = i => anchors.reduce((b, a) => Math.abs(a.y - i.y) < Math.abs(b.y - i.y) ? a : b, anchors[0]);
+    for (const a of anchors.sort((p, q) => q.y - p.y)) {
+      const mine = items.filter(i => i !== a && owner(i) === a);
+      // a wrapped description spills up to ~a line above/below; socio and duration sit on the row itself
+      const right = mine.filter(i => i.x > xSocio - 40 && Math.abs(i.y - a.y) <= 10);
+      const dur = right.find(i => CLOCK.test(i.t));
+      out.rows.push({
+        desc: mine.filter(i => Math.abs(i.y - a.y) <= 16 && i.x < xSocio - 40 && i.x > xEnd + 10).sort((p, q) => Math.round(q.y) - Math.round(p.y) || p.x - q.x).map(i => i.t).join(' ').normalize('NFC'),
+        socio: right.filter(i => i !== dur).map(i => i.t).join(' '),
+        sec: dur ? hms(dur.t) : 0,
+      });
+    }
+  }
+  return out;
+}
+
+// Role per agenda row. Ficha 03 ranges (speeches 5-7, etc.) get a min; every other segment only has a max (the agenda time).
+function classify({ desc, sec }) {
+  const d = desc.replace(/\s/g, ''); // pdf.js can split a word at an accent, so match ignoring spaces
+  const lo = m => Math.max(sec - m, 0);
+  if (/^orador\d/i.test(d)) return { role: 'Discurso Preparado', min: lo(120) };
+  if (/^evaluaci[oó]n(deldiscurso|general)/i.test(d)) return { role: 'Evaluación', min: lo(60) };
+  if (/^evaluaci[oó]n/i.test(d) || (/^presentaci[oó]ndelrol/i.test(d) && sec > 60)) return { role: 'Reporte', min: lo(60) };
+  if (/^participaci[oó]ndesocios/i.test(d)) return { role: 'Topicsmaster' };
+  if (/^(bienvenida|despedida)/i.test(d)) return { role: 'Presidencia' };
+  if (/^(i?introducci|presentaci[oó]ndela(primera|segunda|tercera)|transici|cierre)/i.test(d)) return { role: 'Toastmaster' };
+  if (/^(presentaci[oó]ndelrol|solicitar)/i.test(d)) return { role: 'Presentación de rol' };
+  return { role: 'Otro' };
+}
+
+const msg = document.getElementById('msg');
+const file = document.getElementById('pdf');
+document.getElementById('load').onclick = () => file.click();
+file.onchange = async () => {
+  const f = file.files[0];
+  file.value = '';
+  if (!f) return;
+  if (!window.pdfjsLib) { msg.textContent = 'No pude cargar el lector de PDF. Revisa la conexión a internet.'; return; }
+  if ([...rows.querySelectorAll('.real')].some(i => i.value.trim()) && !confirm('Ya hay tiempos registrados. Reemplazar la tabla con la agenda nueva?')) return;
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const agenda = await readAgenda(pdfjsLib, new Uint8Array(await f.arrayBuffer()));
+    const all = agenda.rows.filter(r => r.desc || r.socio).map(r => [r, classify(r)]);
+    if (!all.length) { msg.textContent = 'No encontré filas en ese PDF. Añade los participantes a mano.'; return; }
+    stop();
+    rows.replaceChildren();
+    for (const [r, c] of all) {
+      addRow({ desc: r.desc, name: r.socio, role: c.role, min: c.min === undefined || !r.sec ? '' : fmt(c.min), max: r.sec ? fmt(r.sec) : '' }, false);
+    }
+    if (agenda.title.length) document.querySelector('.sub').textContent = agenda.title.join(' · ');
+    save();
+    msg.textContent = `Cargué las ${all.length} filas de la agenda en su orden. Los rangos son propuestos (máximo = tiempo de la agenda), corrígelos en la fila si hace falta.`;
+  } catch (e) {
+    msg.textContent = 'No pude leer ese PDF. Añade los participantes a mano.';
+  }
+};
+
+// Persistence: the table (and a running stopwatch) survive a reload. Storage may be blocked, so every access is guarded.
+const KEY = 'guardian-del-tiempo';
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({
+      sub: document.querySelector('.sub').textContent,
+      rows: [...rows.children].map(tr => Object.fromEntries(['desc', 'name', 'role', 'min', 'max', 'real'].map(c => [c, tr.querySelector('.' + c).value]))),
+      run: run && { i: [...rows.children].indexOf(run.tr), t0: run.t0 },
+    }));
+  } catch {}
+}
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY));
+  if (Array.isArray(saved?.rows)) {
+    if (saved.sub) document.querySelector('.sub').textContent = saved.sub;
+    for (const r of saved.rows) {
+      addRow(r, false);
+      rows.lastElementChild.querySelector('.real').value = r.real;
+      refresh(rows.lastElementChild);
+    }
+    const tr = saved.run && rows.children[saved.run.i];
+    if (tr) { run = { tr, t0: saved.run.t0 }; tick(); }
+  }
+} catch {}
+</script>
+</body>
+</html>
