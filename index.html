@@ -92,6 +92,9 @@
   tr.run-green td { background: var(--ok-bg); }
   tr.run-yellow td { background: var(--low-bg); }
   tr.run-red td { background: var(--high-bg); }
+  tr.topic-owner td { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+  tr.topic-owner .clock { background: var(--card); color: var(--accent); }
+  tr.topic-owner .real { background: var(--chip); }
   .hint, #msg { color: var(--muted); margin: 12px 0 0; }
   .hint { display: none; }
   .card:has(#rows:empty) .hint { display: block; }
@@ -124,9 +127,9 @@
       <button type="button" id="session-reset" class="ghost">Reiniciar</button>
     </section>
     <section class="card">
-      <h2>Bloque Topicsmaster</h2>
-      <div class="label">Límite total: 20:00</div><div class="metric" id="topics-time">0:00</div>
-      <p id="topics-status" class="small">Inicia con el primer turno del bloque.</p>
+      <h2>Topicsmaster · reloj del bloque</h2>
+      <div class="label">Reloj único · límite total: 20:00</div><div class="metric" id="topics-time">0:00</div>
+      <p id="topics-status" class="small">Incluye la introducción del Topicsmaster y todas las participaciones.</p>
       <button type="button" id="topics-toggle">Iniciar bloque</button>
       <button type="button" id="topics-reset" class="ghost">Reiniciar</button>
     </section>
@@ -267,7 +270,8 @@ rows.addEventListener('click', e => {
     tr.querySelector('.skip').textContent = tr.dataset.skipped === 'true' ? 'Restaurar' : 'Omitir';
     refresh(tr);
   } else if (e.target.closest('.clock')) {
-    if (run && run.tr === tr) stop(); else start(tr);
+    if (tr.querySelector('.role').value === 'Topicsmaster') toggleClock(topics);
+    else if (run && run.tr === tr) stop(); else start(tr);
   }
   renderClocks();
   save();
@@ -456,6 +460,30 @@ const session = { elapsed: 0, t0: null, started: false, firstStart: null };
 const topics = { elapsed: 0, t0: null, started: false };
 const isTopic = tr => ['Topicsmaster', 'Table Topic'].includes(tr.querySelector('.role').value);
 const clockSeconds = clock => clock.elapsed + (clock.t0 === null ? 0 : Math.floor((Date.now() - clock.t0) / 1000));
+function configureTopicOwner(tr) {
+  const owner = tr.querySelector('.role').value === 'Topicsmaster';
+  tr.classList.toggle('topic-owner', owner);
+  for (const field of ['min', 'max', 'real']) tr.querySelector('.' + field).readOnly = owner;
+  if (!owner) return;
+  const min = tr.querySelector('.min'), max = tr.querySelector('.max'), real = tr.querySelector('.real');
+  if (min.value) min.value = '';
+  if (max.value !== '20:00') max.value = '20:00';
+  const elapsed = clockSeconds(topics);
+  const value = topics.started ? fmt(elapsed) : '';
+  if (real.value !== value) {
+    real.value = value;
+    const key = !topics.started ? '' : elapsed > 1200 ? 'high' : 'ok';
+    tr.dataset.state = key;
+  }
+  const button = tr.querySelector('.clock');
+  button.className = 'clock';
+  button.textContent = topics.t0 === null
+    ? (topics.started ? 'Reanudar bloque · ' + fmt(elapsed) : 'Iniciar bloque · 20:00')
+    : 'Pausar bloque · ' + fmt(elapsed);
+  const badge = tr.querySelector('.badge');
+  badge.className = 'badge' + (elapsed > 1200 ? ' high' : topics.started ? ' ok' : '');
+  badge.textContent = !topics.started ? '🔗 Reloj del bloque' : elapsed > 1200 ? '⬆️ Bloque excedido' : topics.t0 === null ? '⏸️ Bloque pausado' : '🔗 Bloque en curso';
+}
 function startClock(clock) { clock.started = true; clock.t0 = Date.now(); if (clock === session && !clock.firstStart) clock.firstStart = clock.t0; renderClocks(); save(); }
 function pauseClock(clock) { clock.elapsed = clockSeconds(clock); clock.t0 = null; renderClocks(); save(); }
 function toggleClock(clock) { clock.t0 === null ? startClock(clock) : pauseClock(clock); }
@@ -497,8 +525,9 @@ function renderClocks() {
   const topicTime = document.getElementById('topics-time');
   topicTime.textContent = fmt(t) + (t > 1200 ? ' · +' + fmt(t - 1200) : '');
   topicTime.classList.toggle('over', t > 1200);
-  document.getElementById('topics-status').textContent = topics.started ? (t <= 1200 ? 'Restan ' + fmt(1200 - t) : 'Bloque excedido por ' + fmt(t - 1200)) : 'Inicia con el primer turno del bloque.';
+  document.getElementById('topics-status').textContent = topics.started ? (t <= 1200 ? 'Restan ' + fmt(1200 - t) + ' para introducción y participaciones.' : 'Bloque excedido por ' + fmt(t - 1200)) : 'Incluye la introducción del Topicsmaster y todas las participaciones.';
   document.getElementById('topics-toggle').textContent = topics.t0 === null ? (topics.started ? 'Reanudar bloque' : 'Iniciar bloque') : 'Pausar bloque';
+  for (const tr of rows.children) configureTopicOwner(tr);
   const slots = schedule(), total = slots.reduce((n, x) => n + x.seconds, 0);
   let endText = '';
   if (planned) {
@@ -746,7 +775,9 @@ try {
       }
     }
     const tr = saved.run && rows.children[saved.run.i];
-    if (tr) { run = { tr, t0: saved.run.t0 }; tick(); }
+    if (tr?.querySelector('.role').value === 'Topicsmaster') {
+      if (!topics.started) { topics.started = true; topics.t0 = saved.run.t0; }
+    } else if (tr) { run = { tr, t0: saved.run.t0 }; tick(); }
   }
 } catch {}
 renderClocks();
