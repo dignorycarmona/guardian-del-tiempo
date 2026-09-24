@@ -86,7 +86,9 @@
   #remote-pairing[hidden], #remote-viewer[hidden] { display: none; }
   #remote-qr { width: 216px; min-height: 0; margin: 12px auto; padding: 8px; background: white; border-radius: 8px; }
   #remote-qr img, #remote-qr canvas { display: block; max-width: 100%; height: auto; }
-  body.remote-view main > :not(#signal) { display: none; }
+  body.remote-view main > :not(.dashboard) { display: none; }
+  body.remote-view .dashboard { display: block; }
+  body.remote-view .dashboard > :not(#signal) { display: none; }
   body.remote-view #signal { border: 0; box-shadow: none; }
   body.remote-view #signal > :not(#signal-display):not(#remote-viewer) { display: none; }
   tr.run-green td { background: var(--ok-bg); }
@@ -95,6 +97,9 @@
   tr.topic-owner td { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
   tr.topic-owner .clock { background: var(--card); color: var(--accent); }
   tr.topic-owner .real { background: var(--chip); }
+  .clock-actions { display: flex; gap: 6px; align-items: center; }
+  .topic-reset { display: none; }
+  tr.topic-owner .topic-reset { display: inline-flex; align-items: center; }
   .hint, #msg { color: var(--muted); margin: 12px 0 0; }
   .hint { display: none; }
   .card:has(#rows:empty) .hint { display: block; }
@@ -126,16 +131,7 @@
       <button type="button" id="session-toggle">Iniciar sesión</button>
       <button type="button" id="session-reset" class="ghost">Reiniciar</button>
     </section>
-    <section class="card">
-      <h2>Topicsmaster · reloj del bloque</h2>
-      <div class="label">Reloj único · límite total: 20:00</div><div class="metric" id="topics-time">0:00</div>
-      <p id="topics-status" class="small">Incluye la introducción del Topicsmaster y todas las participaciones.</p>
-      <button type="button" id="topics-toggle">Iniciar bloque</button>
-      <button type="button" id="topics-reset" class="ghost">Reiniciar</button>
-    </section>
-  </div>
-
-  <section class="card" id="signal">
+    <section class="card" id="signal">
     <h2>Señal para el orador</h2>
     <div id="signal-display" role="status" aria-live="polite"><button type="button" id="signal-close" hidden aria-label="Cerrar señal">✕ Cerrar</button><strong>⏱️ Esperando</strong><span class="small">Inicia un cronómetro para mostrar la tarjeta.</span></div>
     <p class="small">Pide al anfitrión que ponga esta pantalla frente a la persona que habla.</p>
@@ -158,7 +154,8 @@
       <p id="viewer-status" role="status">Preparando conexión…</p>
       <button type="button" id="viewer-present">Activar tarjeta para el orador</button>
     </div>
-  </section>
+    </section>
+  </div>
 
   <section class="card">
     <div class="scroll">
@@ -197,7 +194,7 @@
     </td>
     <td><input class="t min" type="text" inputmode="numeric" placeholder="MM:SS" maxlength="6" aria-label="Tiempo mínimo"></td>
     <td><input class="t max" type="text" inputmode="numeric" placeholder="MM:SS" maxlength="6" aria-label="Tiempo máximo"></td>
-    <td><button type="button" class="clock" aria-label="Cronómetro">Iniciar</button></td>
+    <td><div class="clock-actions"><button type="button" class="clock" aria-label="Cronómetro">Iniciar</button><button type="button" class="ghost topic-reset" aria-label="Reiniciar bloque Topicsmaster">Reiniciar</button></div></td>
     <td><input class="t real" type="text" inputmode="numeric" placeholder="MM:SS" maxlength="6" aria-label="Tiempo real"></td>
     <td><span class="badge" role="status">Pendiente</span></td>
     <td><button type="button" class="ghost skip" aria-label="Omitir turno">Omitir</button></td>
@@ -269,6 +266,8 @@ rows.addEventListener('click', e => {
     tr.dataset.skipped = tr.dataset.skipped === 'true' ? 'false' : 'true';
     tr.querySelector('.skip').textContent = tr.dataset.skipped === 'true' ? 'Restaurar' : 'Omitir';
     refresh(tr);
+  } else if (e.target.closest('.topic-reset')) {
+    resetClock(topics);
   } else if (e.target.closest('.clock')) {
     if (tr.querySelector('.role').value === 'Topicsmaster') toggleClock(topics);
     else if (run && run.tr === tr) stop(); else start(tr);
@@ -490,8 +489,6 @@ function toggleClock(clock) { clock.t0 === null ? startClock(clock) : pauseClock
 function resetClock(clock) { clock.elapsed = 0; clock.t0 = null; clock.started = false; if (clock === session) clock.firstStart = null; renderClocks(); save(); }
 document.getElementById('session-toggle').onclick = () => toggleClock(session);
 document.getElementById('session-reset').onclick = () => resetClock(session);
-document.getElementById('topics-toggle').onclick = () => toggleClock(topics);
-document.getElementById('topics-reset').onclick = () => resetClock(topics);
 document.getElementById('planned-start').oninput = () => { renderClocks(); save(); };
 
 function schedule() {
@@ -509,7 +506,7 @@ function schedule() {
   return slots;
 }
 function renderClocks() {
-  const s = clockSeconds(session), t = clockSeconds(topics);
+  const s = clockSeconds(session);
   document.getElementById('session-time').textContent = fmt(s);
   document.getElementById('session-toggle').textContent = session.t0 === null ? (session.started ? 'Reanudar sesión' : 'Iniciar sesión') : 'Pausar sesión';
   const planned = document.getElementById('planned-start').value;
@@ -522,11 +519,6 @@ function renderClocks() {
     startText += diff === 0 ? ' · A tiempo' : diff > 0 ? ' · ' + diff + ' min tarde' : ' · ' + -diff + ' min antes';
   }
   document.getElementById('start-status').textContent = startText;
-  const topicTime = document.getElementById('topics-time');
-  topicTime.textContent = fmt(t) + (t > 1200 ? ' · +' + fmt(t - 1200) : '');
-  topicTime.classList.toggle('over', t > 1200);
-  document.getElementById('topics-status').textContent = topics.started ? (t <= 1200 ? 'Restan ' + fmt(1200 - t) + ' para introducción y participaciones.' : 'Bloque excedido por ' + fmt(t - 1200)) : 'Incluye la introducción del Topicsmaster y todas las participaciones.';
-  document.getElementById('topics-toggle').textContent = topics.t0 === null ? (topics.started ? 'Reanudar bloque' : 'Iniciar bloque') : 'Pausar bloque';
   for (const tr of rows.children) configureTopicOwner(tr);
   const slots = schedule(), total = slots.reduce((n, x) => n + x.seconds, 0);
   let endText = '';
