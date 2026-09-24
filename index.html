@@ -73,9 +73,14 @@
   #signal-display.yellow { background: #f5c842; color: #292200; }
   #signal-display.red { background: #c62828; color: white; }
   #signal-display strong { display: block; font-size: clamp(1.8rem, 5vw, 3.5rem); }
-  #signal-display:fullscreen { border-radius: 0; }
-  #signal-display:fullscreen strong { font-size: clamp(4rem, 14vw, 13rem); }
-  #signal-display:fullscreen .small { font-size: clamp(1.5rem, 4vw, 4rem); color: inherit; }
+  #signal-display.presenting {
+    position: fixed; inset: 0; z-index: 9999; width: 100vw; height: 100vh; height: 100dvh;
+    border-radius: 0; padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  }
+  #signal-display.presenting strong { font-size: clamp(4rem, 16vw, 13rem); }
+  #signal-display.presenting .small { font-size: clamp(1.5rem, 5vw, 4rem); color: inherit; }
+  #signal-close { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); background: rgb(0 0 0 / .35); border-color: rgb(255 255 255 / .7); color: white; }
+  body.signal-open { overflow: hidden; }
   tr.run-green td { background: var(--ok-bg); }
   tr.run-yellow td { background: var(--low-bg); }
   tr.run-red td { background: var(--high-bg); }
@@ -121,7 +126,7 @@
 
   <section class="card" id="signal">
     <h2>Señal para el orador</h2>
-    <div id="signal-display" role="status" aria-live="polite"><strong>⏱️ Esperando</strong><span class="small">Inicia un cronómetro para mostrar la tarjeta.</span></div>
+    <div id="signal-display" role="status" aria-live="polite"><button type="button" id="signal-close" hidden aria-label="Cerrar señal">✕ Cerrar</button><strong>⏱️ Esperando</strong><span class="small">Inicia un cronómetro para mostrar la tarjeta.</span></div>
     <p class="small">Pide al anfitrión que ponga esta pantalla frente a la persona que habla.</p>
     <button type="button" id="signal-fullscreen" class="secondary">Mostrar en pantalla completa</button>
   </section>
@@ -293,20 +298,38 @@ function tick() {
 }
 function renderSignal(sig = '', seconds = 0) {
   const display = document.getElementById('signal-display');
+  const presenting = display.classList.contains('presenting');
   const person = run?.tr.querySelector('.name').value.trim() || 'Orador';
   const heading = sig ? ({ green: '🟢 VERDE', yellow: '🟡 AMARILLO', red: '🔴 ROJO' }[sig]) : run ? '⏱️ EN CURSO' : '⏱️ Esperando';
   const detail = run ? person + ' · ' + fmt(seconds) : 'Inicia un cronómetro para mostrar la tarjeta.';
-  if (display.className === sig && display.querySelector('strong')?.textContent === heading && display.querySelector('span')?.textContent === detail) return;
-  display.className = sig;
+  if (display.dataset.signal === sig && display.querySelector('strong')?.textContent === heading && display.querySelector('span')?.textContent === detail) return;
+  display.className = sig + (presenting ? ' presenting' : '');
+  display.dataset.signal = sig;
   display.replaceChildren();
+  const close = document.createElement('button'); close.type = 'button'; close.id = 'signal-close'; close.setAttribute('aria-label', 'Cerrar señal'); close.textContent = '✕ Cerrar'; close.hidden = !presenting;
   const title = document.createElement('strong'); title.textContent = heading;
   const subtitle = document.createElement('span'); subtitle.className = 'small'; subtitle.textContent = detail;
-  display.append(title, subtitle);
+  display.append(close, title, subtitle);
 }
-document.getElementById('signal-fullscreen').onclick = () => {
+let wakeLock = null;
+async function setSignalMode(open) {
   const display = document.getElementById('signal-display');
-  if (document.fullscreenElement) document.exitFullscreen(); else display.requestFullscreen?.();
-};
+  display.classList.toggle('presenting', open);
+  document.body.classList.toggle('signal-open', open);
+  display.querySelector('#signal-close').hidden = !open;
+  const button = document.getElementById('signal-fullscreen');
+  button.textContent = open ? 'Cerrar pantalla para el orador' : 'Mostrar en pantalla completa';
+  button.setAttribute('aria-pressed', String(open));
+  if (open) {
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+  } else {
+    try { await wakeLock?.release(); } catch {}
+    wakeLock = null;
+  }
+}
+document.getElementById('signal-fullscreen').onclick = () => setSignalMode(!document.getElementById('signal-display').classList.contains('presenting'));
+document.getElementById('signal-display').addEventListener('click', e => { if (e.target.closest('#signal-close')) setSignalMode(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setSignalMode(false); });
 setInterval(() => { tick(); renderClocks(); }, 250);
 
 // The meeting and the complete Topicsmaster block keep time independently of speaker stopwatches.
