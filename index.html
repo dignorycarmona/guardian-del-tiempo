@@ -81,6 +81,14 @@
   #signal-display.presenting .small { font-size: clamp(1.5rem, 5vw, 4rem); color: inherit; }
   #signal-close { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); background: rgb(0 0 0 / .35); border-color: rgb(255 255 255 / .7); color: white; }
   body.signal-open { overflow: hidden; }
+  .remote-box { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .remote-box input { max-width: 620px; }
+  #remote-pairing[hidden], #remote-viewer[hidden] { display: none; }
+  #remote-qr { width: 216px; min-height: 0; margin: 12px auto; padding: 8px; background: white; border-radius: 8px; }
+  #remote-qr img, #remote-qr canvas { display: block; max-width: 100%; height: auto; }
+  body.remote-view main > :not(#signal) { display: none; }
+  body.remote-view #signal { border: 0; box-shadow: none; }
+  body.remote-view #signal > :not(#signal-display):not(#remote-viewer) { display: none; }
   tr.run-green td { background: var(--ok-bg); }
   tr.run-yellow td { background: var(--low-bg); }
   tr.run-red td { background: var(--high-bg); }
@@ -129,6 +137,24 @@
     <div id="signal-display" role="status" aria-live="polite"><button type="button" id="signal-close" hidden aria-label="Cerrar señal">✕ Cerrar</button><strong>⏱️ Esperando</strong><span class="small">Inicia un cronómetro para mostrar la tarjeta.</span></div>
     <p class="small">Pide al anfitrión que ponga esta pantalla frente a la persona que habla.</p>
     <button type="button" id="signal-fullscreen" class="secondary">Mostrar en pantalla completa</button>
+    <div class="remote-box" id="remote-controller">
+      <h2>Señal en otro dispositivo</h2>
+      <p class="small">Usa el computador como control y abre la tarjeta en un teléfono.</p>
+      <button type="button" id="remote-start">Conectar teléfono</button>
+      <div id="remote-pairing" hidden>
+        <p id="remote-status" role="status" class="small"></p>
+        <div id="remote-qr" aria-label="Código QR para abrir la tarjeta remota"></div>
+        <input id="remote-link" type="text" readonly aria-label="Enlace para la tarjeta remota">
+        <div class="actions">
+          <button type="button" id="remote-copy" class="secondary">Copiar enlace</button>
+          <button type="button" id="remote-share" class="secondary">Compartir enlace</button>
+        </div>
+      </div>
+    </div>
+    <div class="remote-box" id="remote-viewer" hidden>
+      <p id="viewer-status" role="status">Preparando conexión…</p>
+      <button type="button" id="viewer-present">Activar tarjeta para el orador</button>
+    </div>
   </section>
 
   <section class="card">
@@ -177,6 +203,8 @@
 </template>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 const rows = document.getElementById('rows');
 const report = document.getElementById('report');
@@ -296,20 +324,37 @@ function tick() {
   button.textContent = 'Parar ' + fmt(s) + (sig ? ' · ' + ({ green: '🟢', yellow: '🟡', red: '🔴' }[sig]) + ' ' + SIGNAL[sig] : '');
   renderSignal(sig, s);
 }
-function renderSignal(sig = '', seconds = 0) {
+let lastSignalPayload = { type: 'signal', sig: '', heading: '⏱️ Esperando', detail: 'Inicia un cronómetro para mostrar la tarjeta.' };
+const remoteConnections = new Set();
+function broadcastSignal(payload) {
+  lastSignalPayload = payload;
+  for (const connection of remoteConnections) {
+    if (connection.open) {
+      try { connection.send(payload); } catch {}
+    }
+  }
+}
+function paintSignal(payload) {
   const display = document.getElementById('signal-display');
   const presenting = display.classList.contains('presenting');
-  const person = run?.tr.querySelector('.name').value.trim() || 'Orador';
-  const heading = sig ? ({ green: '🟢 VERDE', yellow: '🟡 AMARILLO', red: '🔴 ROJO' }[sig]) : run ? '⏱️ EN CURSO' : '⏱️ Esperando';
-  const detail = run ? person + ' · ' + fmt(seconds) : 'Inicia un cronómetro para mostrar la tarjeta.';
-  if (display.dataset.signal === sig && display.querySelector('strong')?.textContent === heading && display.querySelector('span')?.textContent === detail) return;
-  display.className = sig + (presenting ? ' presenting' : '');
-  display.dataset.signal = sig;
+  if (display.dataset.signal === payload.sig && display.querySelector('strong')?.textContent === payload.heading && display.querySelector('span')?.textContent === payload.detail) return;
+  display.className = payload.sig + (presenting ? ' presenting' : '');
+  display.dataset.signal = payload.sig;
   display.replaceChildren();
   const close = document.createElement('button'); close.type = 'button'; close.id = 'signal-close'; close.setAttribute('aria-label', 'Cerrar señal'); close.textContent = '✕ Cerrar'; close.hidden = !presenting;
-  const title = document.createElement('strong'); title.textContent = heading;
-  const subtitle = document.createElement('span'); subtitle.className = 'small'; subtitle.textContent = detail;
+  const title = document.createElement('strong'); title.textContent = payload.heading;
+  const subtitle = document.createElement('span'); subtitle.className = 'small'; subtitle.textContent = payload.detail;
   display.append(close, title, subtitle);
+}
+function renderSignal(sig = '', seconds = 0) {
+  const person = run?.tr.querySelector('.name').value.trim() || 'Orador';
+  const payload = {
+    type: 'signal', sig,
+    heading: sig ? ({ green: '🟢 VERDE', yellow: '🟡 AMARILLO', red: '🔴 ROJO' }[sig]) : run ? '⏱️ EN CURSO' : '⏱️ Esperando',
+    detail: run ? person + ' · ' + fmt(seconds) : 'Inicia un cronómetro para mostrar la tarjeta.',
+  };
+  paintSignal(payload);
+  if (JSON.stringify(payload) !== JSON.stringify(lastSignalPayload)) broadcastSignal(payload);
 }
 let wakeLock = null;
 async function setSignalMode(open) {
@@ -330,6 +375,80 @@ async function setSignalMode(open) {
 document.getElementById('signal-fullscreen').onclick = () => setSignalMode(!document.getElementById('signal-display').classList.contains('presenting'));
 document.getElementById('signal-display').addEventListener('click', e => { if (e.target.closest('#signal-close')) setSignalMode(false); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setSignalMode(false); });
+
+// Remote speaker card. PeerJS uses its public signaling server to introduce both browsers;
+// the timer state then travels directly between the computer and the phone over WebRTC.
+let controllerPeer = null;
+function attachControllerConnection(connection) {
+  remoteConnections.add(connection);
+  const status = document.getElementById('remote-status');
+  connection.on('open', () => {
+    status.textContent = `Teléfono conectado${remoteConnections.size > 1 ? ' · ' + remoteConnections.size + ' dispositivos' : ''}.`;
+    connection.send(lastSignalPayload);
+  });
+  connection.on('close', () => {
+    remoteConnections.delete(connection);
+    status.textContent = remoteConnections.size ? `${remoteConnections.size} dispositivo(s) conectado(s).` : 'Teléfono desconectado. Vuelve a abrir el enlace para reconectarlo.';
+  });
+  connection.on('error', () => { status.textContent = 'Se perdió la conexión con un dispositivo.'; });
+}
+document.getElementById('remote-start').onclick = () => {
+  const pairing = document.getElementById('remote-pairing');
+  const status = document.getElementById('remote-status');
+  pairing.hidden = false;
+  status.textContent = 'Creando enlace seguro…';
+  if (!window.Peer) { status.textContent = 'No pude cargar la conexión remota. Revisa internet y recarga la página.'; return; }
+  if (controllerPeer && !controllerPeer.destroyed) return;
+  controllerPeer = new Peer();
+  controllerPeer.on('open', id => {
+    const url = new URL(location.href); url.search = ''; url.hash = ''; url.searchParams.set('remote', id);
+    const link = url.toString();
+    document.getElementById('remote-link').value = link;
+    status.textContent = 'Escanea el código con el teléfono. Esperando conexión…';
+    const qr = document.getElementById('remote-qr'); qr.replaceChildren();
+    if (window.QRCode) new QRCode(qr, { text: link, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+  });
+  controllerPeer.on('connection', attachControllerConnection);
+  controllerPeer.on('error', error => { status.textContent = error.type === 'network' ? 'Sin conexión. Revisa internet e inténtalo otra vez.' : 'No pude crear la conexión remota. Inténtalo otra vez.'; });
+};
+document.getElementById('remote-copy').onclick = async () => {
+  const input = document.getElementById('remote-link');
+  try { await navigator.clipboard.writeText(input.value); document.getElementById('remote-status').textContent = 'Enlace copiado. Ábrelo en el teléfono.'; }
+  catch { input.select(); document.execCommand('copy'); }
+};
+document.getElementById('remote-share').onclick = async () => {
+  const url = document.getElementById('remote-link').value;
+  if (navigator.share) { try { await navigator.share({ title: 'Tarjeta remota del Guardián del Tiempo', text: 'Abre esta tarjeta en el dispositivo frente al orador:', url }); } catch {} }
+  else document.getElementById('remote-copy').click();
+};
+
+function startRemoteViewer(controllerId) {
+  document.body.classList.add('remote-view');
+  document.getElementById('remote-viewer').hidden = false;
+  const status = document.getElementById('viewer-status');
+  document.getElementById('viewer-present').onclick = () => setSignalMode(true);
+  if (!window.Peer) { status.textContent = 'No pude cargar la conexión. Revisa internet y recarga la página.'; return; }
+  const peer = new Peer();
+  let retry = null;
+  const showDisconnected = detail => paintSignal({ type: 'signal', sig: '', heading: '📡 SIN CONEXIÓN', detail });
+  const connect = () => {
+    clearTimeout(retry);
+    status.textContent = 'Conectando con el computador…';
+    const connection = peer.connect(controllerId, { reliable: true, metadata: { role: 'speaker-card' } });
+    connection.on('open', () => { status.textContent = 'Conectado. La tarjeta seguirá el cronómetro del computador.'; });
+    connection.on('data', data => { if (data?.type === 'signal') paintSignal(data); });
+    connection.on('close', () => { status.textContent = 'Conexión interrumpida. Reconectando…'; showDisconnected('Reconectando con el computador…'); retry = setTimeout(connect, 2500); });
+    connection.on('error', () => { status.textContent = 'No pude conectar. Verifica que el enlace siga abierto en el computador.'; showDisconnected('Verifica el computador'); });
+  };
+  peer.on('open', connect);
+  peer.on('disconnected', () => { status.textContent = 'Sin conexión. Reconectando…'; showDisconnected('Reconectando con el computador…'); try { peer.reconnect(); } catch {} });
+  peer.on('error', error => {
+    if (error.type === 'peer-unavailable') { status.textContent = 'La sesión remota no está disponible. Crea un enlace nuevo en el computador.'; showDisconnected('Crea un enlace nuevo en el computador'); }
+    else { status.textContent = 'Problema de conexión. Revisa internet y vuelve a abrir el enlace.'; showDisconnected('Revisa internet'); }
+  });
+}
+const remoteControllerId = new URLSearchParams(location.search).get('remote');
+if (remoteControllerId) startRemoteViewer(remoteControllerId);
 setInterval(() => { tick(); renderClocks(); }, 250);
 
 // The meeting and the complete Topicsmaster block keep time independently of speaker stopwatches.
