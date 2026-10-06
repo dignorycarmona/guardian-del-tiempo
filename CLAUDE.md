@@ -1,13 +1,14 @@
-# Guardián del Tiempo (Toastmasters Medellín)
+# Guardián del Tiempo (Toastmasters Medellín, remote from Cali)
 
 Single-file dashboard (`index.html`, no build) for the session's Cronometrador. Spanish UI.
 
 ## Behavior
 - Table follows the agenda order. Columns: Descripción, Socio, Rol, Mínimo, Máximo, Cronómetro, Real, Estado.
-- "Cargar agenda (PDF)" builds all rows from the published agenda PDF (pdf.js 3.11.174 from cdnjs, parsed by header column positions INICIO/FIN/SOCIO).
+- "Cargar agenda (PDF)" builds all rows from the published agenda PDF (pdf.js 3.11.174 from cdnjs, parsed by header column positions INICIO/FIN/SOCIO; a second layout with RESPONSABLE, "7:00 p. m." times and "2 min" durations is read by `readTable`, keeping the last-drawn text when an edited PDF overlays old text).
 - Roles with Ficha 03 ranges (min+max): Discurso Preparado (max-2:00), Evaluación and Reporte (max-1:00), Table Topic (1:00-2:00 default). Other roles (Toastmaster, Topicsmaster, Presidencia, Presentación de rol, Otro) have only a max = agenda time.
-- Stopwatch per row (timestamp-based, survives throttled tabs). Signals: green at min, yellow at midpoint, red at max, shown on the button, row, and large speaker card with emoji and text. Speaker mode uses a fixed `100dvh` overlay instead of the Fullscreen API so it works on mobile Safari; it includes an on-screen close control and requests a screen wake lock when supported.
+- Stopwatch per row (timestamp-based, survives throttled tabs). Clicking a running row pauses it; clicking again continues from its Real value ("Continuar"); clearing Real restarts from zero. Signals: green at min, yellow at midpoint, red at max, shown on the button, row, and large speaker card with emoji and text. Speaker mode uses a fixed `100dvh` overlay instead of the Fullscreen API so it works on mobile Safari; it includes an on-screen close control and requests a screen wake lock when supported.
 - Remote speaker card: the controller creates a QR/link containing a random PeerJS ID. A phone opening that link receives signal color, label, participant, and elapsed time live over a WebRTC data channel. PeerJS Cloud brokers the connection; signal data travels peer-to-peer. Multiple viewers are supported, and a viewer clears stale colors while reconnecting.
+- "Finalizar sesión" stops all clocks and stamps the real end. The report (screen and PNG) opens with planned vs real start, end, and duration, plus % over/under plan.
 - Independent session clock tracks actual start against the scheduled start (taken from the PDF when available). The planned agenda position and finish time use row maxima; omitted rows are removed from the plan.
 - Topicsmaster and Table Topic rows share one 20-minute block clock. It starts with the first such row and continues across speaker changes. Starting a non-topic row pauses it. The planned agenda counts the whole block once as 20 minutes.
 - The PDF's Topicsmaster row is the only visible owner/control for that shared block, not a second individual stopwatch. Its button controls the aggregate clock, its real time mirrors that clock, its status is labeled as linked, and its row exposes the block reset action. The top dashboard uses the second card for the speaker signal instead.

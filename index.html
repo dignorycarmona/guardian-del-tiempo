@@ -38,21 +38,20 @@
   p.sub { margin: 0 0 16px; color: var(--muted); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   .scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; min-width: 1400px; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 1500px; }
+  th:nth-child(2) { width: 160px; } th:nth-child(3) { width: 210px; } th:nth-child(4), th:nth-child(5), th:nth-child(7) { width: 108px; } th:nth-child(6) { width: 210px; } th:nth-child(8) { width: 140px; } th:nth-child(9), th:nth-child(10) { width: 96px; }
   th { text-align: left; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 8px 8px; }
   td { padding: 4px 8px; vertical-align: middle; }
   input, select, button { font: inherit; min-height: 44px; border-radius: 8px; }
   input, select { width: 100%; padding: 0 10px; border: 1px solid var(--line); background: var(--field); color: var(--ink); }
-  select.role { min-width: 190px; }
-  input.desc { min-width: 260px; }
-  input.t { width: 88px; text-align: center; font-variant-numeric: tabular-nums; }
+      input.t { width: 88px; text-align: center; font-variant-numeric: tabular-nums; }
   input[aria-invalid="true"] { border-color: var(--high-ink); background: var(--high-bg); }
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
   button { border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); padding: 0 16px; cursor: pointer; }
   button:hover { filter: brightness(1.15); }
   button.ghost { background: transparent; color: var(--muted); border-color: var(--line); padding: 0 12px; }
   button.ghost:hover { color: var(--high-ink); border-color: var(--high-ink); filter: none; }
-  button.clock { min-width: 150px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  button.clock { width: 100%; white-space: nowrap; font-variant-numeric: tabular-nums; }
   button.clock.green { background: #17803a; border-color: #17803a; color: white; }
   button.clock.yellow { background: #f5c842; border-color: #c79c13; color: #292200; }
   button.clock.red { background: #c62828; border-color: #c62828; color: white; }
@@ -97,7 +96,7 @@
   tr.topic-owner td { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
   tr.topic-owner .clock { background: var(--card); color: var(--accent); }
   tr.topic-owner .real { background: var(--chip); }
-  .clock-actions { display: flex; gap: 6px; align-items: center; }
+  .clock-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .topic-reset { display: none; }
   tr.topic-owner .topic-reset { display: inline-flex; align-items: center; }
   .hint, #msg { color: var(--muted); margin: 12px 0 0; }
@@ -129,6 +128,7 @@
       <p id="agenda-position" class="small">Carga una agenda para ver la posición prevista.</p>
       <p id="agenda-total" class="small"></p>
       <button type="button" id="session-toggle">Iniciar sesión</button>
+      <button type="button" id="session-end" class="secondary" hidden>Finalizar sesión</button>
       <button type="button" id="session-reset" class="ghost">Reiniciar</button>
     </section>
     <section class="card" id="signal">
@@ -230,6 +230,7 @@ function refresh(tr) {
   badge.className = 'badge' + (key ? ' ' + STATES[key].cls : '');
   badge.textContent = tr.dataset.skipped === 'true' ? 'Omitido' : key ? STATES[key].label : 'Pendiente';
   tr.dataset.state = key || '';
+  if (run?.tr !== tr) tr.querySelector('.clock').textContent = r ? 'Continuar · ' + fmt(r) : 'Iniciar';
 }
 
 function addRow(d = {}, focus = true, before = null) {
@@ -296,7 +297,8 @@ function start(tr) {
   }
   if (isTopic(tr) && !topics.started) startClock(topics);
   if (!isTopic(tr) && topics.started && topics.t0 !== null) pauseClock(topics);
-  run = { tr, t0: Date.now() };
+  // resume from the row's recorded time; clearing Real starts it from zero
+  run = { tr, t0: Date.now() - (toSec(tr.querySelector('.real').value) ?? 0) * 1000 };
   tick();
   save();
 }
@@ -310,7 +312,7 @@ function stop() {
   real.dispatchEvent(new Event('input', { bubbles: true }));
   tr.className = '';
   tr.querySelector('.clock').className = 'clock';
-  tr.querySelector('.clock').textContent = 'Iniciar';
+  refresh(tr);
   renderSignal();
 }
 
@@ -324,7 +326,7 @@ function tick() {
   tr.className = sig && 'run-' + sig;
   const button = tr.querySelector('.clock');
   button.className = 'clock' + (sig ? ' ' + sig : '');
-  button.textContent = 'Parar ' + fmt(s) + (sig ? ' · ' + ({ green: '🟢', yellow: '🟡', red: '🔴' }[sig]) + ' ' + SIGNAL[sig] : '');
+  button.textContent = 'Pausar ' + fmt(s) + (sig ? ' · ' + ({ green: '🟢', yellow: '🟡', red: '🔴' }[sig]) + ' ' + SIGNAL[sig] : '');
   renderSignal(sig, s);
 }
 let lastSignalPayload = { type: 'signal', sig: '', heading: '⏱️ Esperando', detail: 'Inicia un cronómetro para mostrar la tarjeta.' };
@@ -455,7 +457,7 @@ if (remoteControllerId) startRemoteViewer(remoteControllerId);
 setInterval(() => { tick(); renderClocks(); }, 250);
 
 // The meeting and the complete Topicsmaster block keep time independently of speaker stopwatches.
-const session = { elapsed: 0, t0: null, started: false, firstStart: null };
+const session = { elapsed: 0, t0: null, started: false, firstStart: null, endedAt: null };
 const topics = { elapsed: 0, t0: null, started: false };
 const isTopic = tr => ['Topicsmaster', 'Table Topic'].includes(tr.querySelector('.role').value);
 const clockSeconds = clock => clock.elapsed + (clock.t0 === null ? 0 : Math.floor((Date.now() - clock.t0) / 1000));
@@ -483,12 +485,34 @@ function configureTopicOwner(tr) {
   badge.className = 'badge' + (elapsed > 1200 ? ' high' : topics.started ? ' ok' : '');
   badge.textContent = !topics.started ? '🔗 Reloj del bloque' : elapsed > 1200 ? '⬆️ Bloque excedido' : topics.t0 === null ? '⏸️ Bloque pausado' : '🔗 Bloque en curso';
 }
-function startClock(clock) { clock.started = true; clock.t0 = Date.now(); if (clock === session && !clock.firstStart) clock.firstStart = clock.t0; renderClocks(); save(); }
+function startClock(clock) { clock.started = true; if (clock === session) clock.endedAt = null; clock.t0 = Date.now(); if (clock === session && !clock.firstStart) clock.firstStart = clock.t0; renderClocks(); save(); }
 function pauseClock(clock) { clock.elapsed = clockSeconds(clock); clock.t0 = null; renderClocks(); save(); }
 function toggleClock(clock) { clock.t0 === null ? startClock(clock) : pauseClock(clock); }
-function resetClock(clock) { clock.elapsed = 0; clock.t0 = null; clock.started = false; if (clock === session) clock.firstStart = null; renderClocks(); save(); }
+function resetClock(clock) { clock.elapsed = 0; clock.t0 = null; clock.started = false; if (clock === session) clock.firstStart = clock.endedAt = null; renderClocks(); save(); }
 document.getElementById('session-toggle').onclick = () => toggleClock(session);
 document.getElementById('session-reset').onclick = () => resetClock(session);
+document.getElementById('session-end').onclick = () => {
+  stop();
+  if (topics.t0 !== null) pauseClock(topics);
+  if (session.t0 !== null) pauseClock(session);
+  session.endedAt = Date.now();
+  renderClocks(); save();
+};
+const hm = ms => new Date(ms).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+// Planned vs actual for the whole meeting, shared by the on-screen report and the PNG.
+function sessionSummary() {
+  if (!session.started) return [];
+  const planned = document.getElementById('planned-start').value;
+  const total = schedule().reduce((n, x) => n + x.seconds, 0), real = clockSeconds(session);
+  let target = null;
+  if (planned) { const d = new Date(session.firstStart); d.setHours(...planned.split(':').map(Number), 0, 0); target = d.getTime(); }
+  const late = target === null ? null : Math.round((session.firstStart - target) / 60000);
+  const lines = [`Inicio: ${target === null ? '' : 'programado ' + hm(target) + ' · '}real ${hm(session.firstStart)}${late === null ? '' : late === 0 ? ' (a tiempo)' : late > 0 ? ` (${late} min tarde)` : ` (${-late} min antes)`}`];
+  if (target !== null || session.endedAt) lines.push(`Fin: ${target === null ? '' : 'previsto ' + hm(target + total * 1000)}${target !== null && session.endedAt ? ' · ' : ''}${session.endedAt ? 'real ' + hm(session.endedAt) : ''}`);
+  const over = total ? Math.round((real - total) / total * 100) : null;
+  lines.push(`Duración: ${total ? 'prevista ' + fmt(total) + ' · ' : ''}real ${fmt(real)}${over === null ? '' : over > 0 ? ` · ${over}% por encima de lo previsto` : over < 0 ? ` · ${-over}% por debajo de lo previsto` : ' · exacta'}${session.endedAt ? '' : ' (sesión en curso)'}`);
+  return lines;
+}
 document.getElementById('planned-start').oninput = () => { renderClocks(); save(); };
 
 function schedule() {
@@ -509,6 +533,7 @@ function renderClocks() {
   const s = clockSeconds(session);
   document.getElementById('session-time').textContent = fmt(s);
   document.getElementById('session-toggle').textContent = session.t0 === null ? (session.started ? 'Reanudar sesión' : 'Iniciar sesión') : 'Pausar sesión';
+  document.getElementById('session-end').hidden = !session.started || !!session.endedAt;
   const planned = document.getElementById('planned-start').value;
   let startText = session.firstStart ? 'Inicio real: ' + new Date(session.firstStart).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : 'Inicio real: pendiente.';
   if (session.firstStart && planned) {
@@ -586,6 +611,7 @@ document.getElementById('gen').onclick = () => {
   const intro = document.createElement('p');
   intro.textContent = `${reportData.length} intervenciones registradas · ${counts.ok} en rango · ${counts.low} por debajo · ${counts.high} por encima. Se incluyen solo las filas con tiempo real.`;
   report.append(intro);
+  for (const line of sessionSummary()) { const p = document.createElement('p'); p.className = 'small'; p.textContent = line; report.append(p); }
   const grid = document.createElement('div');
   grid.className = 'report-grid';
   for (const person of grouped(reportData)) {
@@ -610,7 +636,8 @@ document.getElementById('gen').onclick = () => {
 
 function reportPng() {
   const people = grouped(reportData), width = 1080, pad = 56;
-  const height = 170 + people.reduce((n, p) => n + 48 + p.items.length * 76 + 18, 0);
+  const summary = sessionSummary();
+  const height = 170 + summary.length * 32 + people.reduce((n, p) => n + 48 + p.items.length * 76 + 18, 0);
   const canvas = document.createElement('canvas');
   canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext('2d');
@@ -618,8 +645,10 @@ function reportPng() {
   ctx.fillStyle = '#1f2933'; ctx.font = 'bold 38px system-ui'; ctx.fillText('Reporte de tiempo', pad, 70);
   ctx.font = '24px system-ui'; ctx.fillStyle = '#52606d';
   ctx.fillText(`${reportData.length} intervenciones · ${fmt(clockSeconds(session))} de sesión`, pad, 111);
+  ctx.font = '21px system-ui'; ctx.fillStyle = '#1f2933';
+  summary.forEach((line, i) => ctx.fillText(line, pad, 147 + i * 32));
   const colors = { ok: '#17803a', low: '#b28a0b', high: '#c62828' };
-  let y = 145;
+  let y = 145 + summary.length * 32;
   for (const person of people) {
     const h = 48 + person.items.length * 76 + 18;
     ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(pad, y, width - pad * 2, h, 15); ctx.fill();
@@ -668,7 +697,8 @@ async function readAgenda(pdfjsLib, data) {
   const out = { title: [], rows: [], plannedStart: '' };
   for (let n = 1; n <= doc.numPages; n++) {
     const items = (await (await doc.getPage(n)).getTextContent()).items
-      .map(i => ({ t: i.str.trim(), x: i.transform[4], y: i.transform[5] })).filter(i => i.t);
+      .map(i => ({ t: i.str.trim(), x: i.transform[4], y: i.transform[5], w: i.width })).filter(i => i.t);
+    if (items.some(i => i.t === 'RESPONSABLE')) { readTable(items, out); continue; }
     const col = k => items.find(i => i.t.toUpperCase().startsWith(k))?.x;
     const [xStart, xEnd, xSocio] = [col('INICIO'), col('FIN'), col('SOCIO')];
     if ([xStart, xEnd, xSocio].includes(undefined)) continue;
@@ -689,6 +719,33 @@ async function readAgenda(pdfjsLib, data) {
     }
   }
   return out;
+}
+
+// Newer layout: # INICIO FIN MOMENTO RESPONSABLE ROL TIEMPO, times "7:00 p. m.", durations "2 min".
+// Headers are centered over their column, so each cell goes to the header with the nearest center.
+function readTable(items, out) {
+  const head = items.find(i => i.t === 'RESPONSABLE');
+  const mid = i => i.x + i.w / 2;
+  const cols = items.filter(i => Math.abs(i.y - head.y) < 3);
+  // only times and row numbers live in #, INICIO and FIN; a short MOMENTO like "Apertura" would otherwise land in FIN
+  const colOf = i => cols.filter(c => /\d/.test(i.t) || !['#', 'INICIO', 'FIN'].includes(c.t))
+    .reduce((b, c) => Math.abs(mid(c) - mid(i)) < Math.abs(mid(b) - mid(i)) ? c : b).t;
+  const date = items.find(i => /\d{1,2} de \w+ de \d{4}/.test(i.t));
+  if (date && !out.title.length) out.title.push(date.t.normalize('NFC'));
+  const anchors = items.filter(i => i.y < head.y - 3 && /^\d+$/.test(i.t) && colOf(i) === '#').sort((p, q) => q.y - p.y);
+  for (const a of anchors) {
+    // an edited PDF can paint new text over the old at a slightly different y: keep the line drawn last
+    const cell = k => {
+      const all = items.filter(i => i !== a && Math.abs(i.y - a.y) <= 5 && colOf(i) === k);
+      const y = Math.round(all.at(-1)?.y);
+      return all.filter(i => Math.round(i.y) === y).map(i => i.t).join(' ').normalize('NFC');
+    };
+    if (!out.plannedStart) {
+      const m = cell('INICIO').match(/(\d{1,2}):(\d{2})\s*([ap])/i);
+      if (m) out.plannedStart = String(+m[1] % 12 + (/p/i.test(m[3]) ? 12 : 0)).padStart(2, '0') + ':' + m[2];
+    }
+    out.rows.push({ desc: cell('MOMENTO'), socio: cell('RESPONSABLE'), sec: (parseInt(cell('TIEMPO')) || 0) * 60 });
+  }
 }
 
 // Role per agenda row. Ficha 03 ranges (speeches 5-7, etc.) get a min; every other segment only has a max (the agenda time).
@@ -743,7 +800,7 @@ function save() {
       plannedStart: document.getElementById('planned-start').value,
       rows: [...rows.children].map(tr => ({ ...Object.fromEntries(['desc', 'name', 'role', 'min', 'max', 'real'].map(c => [c, tr.querySelector('.' + c).value])), skipped: tr.dataset.skipped === 'true' })),
       run: run && { i: [...rows.children].indexOf(run.tr), t0: run.t0 },
-      session: { elapsed: session.elapsed, t0: session.t0, started: session.started, firstStart: session.firstStart },
+      session: { elapsed: session.elapsed, t0: session.t0, started: session.started, firstStart: session.firstStart, endedAt: session.endedAt },
       topics: { elapsed: topics.elapsed, t0: topics.t0, started: topics.started },
     }));
   } catch {}
@@ -763,7 +820,7 @@ try {
         clock.elapsed = Number.isFinite(state.elapsed) ? Math.max(0, state.elapsed) : 0;
         clock.t0 = Number.isFinite(state.t0) && state.t0 <= Date.now() ? state.t0 : null;
         clock.started = !!state.started;
-        if (clock === session) clock.firstStart = Number.isFinite(state.firstStart) ? state.firstStart : null;
+        if (clock === session) { clock.firstStart = Number.isFinite(state.firstStart) ? state.firstStart : null; clock.endedAt = Number.isFinite(state.endedAt) ? state.endedAt : null; }
       }
     }
     const tr = saved.run && rows.children[saved.run.i];
