@@ -96,9 +96,9 @@
   tr.topic-owner td { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
   tr.topic-owner .clock { background: var(--card); color: var(--accent); }
   tr.topic-owner .real { background: var(--chip); }
-  .clock-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .clock-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; align-items: center; }
   .topic-reset { display: none; }
-  tr.topic-owner .topic-reset { display: inline-flex; align-items: center; }
+  tr.topic-owner.topic-started .topic-reset { display: inline-flex; align-items: center; }
   .hint, #msg { color: var(--muted); margin: 12px 0 0; }
   .hint { display: none; }
   .card:has(#rows:empty) .hint { display: block; }
@@ -464,6 +464,7 @@ const clockSeconds = clock => clock.elapsed + (clock.t0 === null ? 0 : Math.floo
 function configureTopicOwner(tr) {
   const owner = tr.querySelector('.role').value === 'Topicsmaster';
   tr.classList.toggle('topic-owner', owner);
+  tr.classList.toggle('topic-started', owner && topics.started);
   for (const field of ['min', 'max', 'real']) tr.querySelector('.' + field).readOnly = owner;
   if (!owner) return;
   const min = tr.querySelector('.min'), max = tr.querySelector('.max'), real = tr.querySelector('.real');
